@@ -41,17 +41,28 @@ jobs:
           
           echo "API URL: $API_URL"
           
+          # Create temporary directories
+          UPLOAD_DIR=$(mktemp -d)
+          EXTRACT_DIR=$(mktemp -d)
+          echo "Upload directory: $UPLOAD_DIR"
+          echo "Extract directory: $EXTRACT_DIR"
+          
+          # Function to cleanup directories
+          cleanup() {
+            echo "Cleaning up directories..."
+            rm -rf "$UPLOAD_DIR" "$EXTRACT_DIR"
+          }
+          
+          # Set trap to cleanup on script exit
+          trap cleanup EXIT
+          
           # Calculate total chunks with smaller chunk size
           CHUNK_SIZE=25000000 # 25MB chunks (reduced from 50MB)
           TOTAL_CHUNKS=$(tar -czf - --exclude='.git' . | wc -c | awk -v size=$CHUNK_SIZE '{print int(($1+size-1)/size)}')
           echo "Total chunks: $TOTAL_CHUNKS"
           
-          # Create temporary directory for chunks
-          TEMP_DIR=$(mktemp -d)
-          echo "Temp directory: $TEMP_DIR"
-          
           # Split repository into chunks
-          cd $TEMP_DIR
+          cd "$UPLOAD_DIR"
           tar -C $GITHUB_WORKSPACE -czf - --exclude='.git' . | split -b $CHUNK_SIZE - chunk-
           
           # Upload each chunk with retries
@@ -100,7 +111,6 @@ jobs:
             
             if [ $success = false ]; then
               echo "Failed to upload chunk $CHUNK_NUM after $MAX_RETRIES attempts"
-              rm -rf $TEMP_DIR
               exit 1
             fi
             
@@ -147,12 +157,9 @@ jobs:
               if [ -n "$CID" ]; then
                 echo "CID: $CID"
                 echo "cid=$CID" >> $GITHUB_OUTPUT
-                # Only cleanup after successful completion
-                rm -rf $TEMP_DIR
               else
                 echo "Error: CID not found in response"
                 echo "Full response: $COMPLETE_RESPONSE"
-                rm -rf $TEMP_DIR
                 exit 1
               fi
             else
@@ -165,7 +172,6 @@ jobs:
           
           if [ $success = false ]; then
             echo "Failed to complete upload after $MAX_RETRIES attempts"
-            rm -rf $TEMP_DIR
             exit 1
           fi
 
